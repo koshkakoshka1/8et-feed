@@ -10,12 +10,12 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: pre-editorial
+  group: pre-archive
   cancel-in-progress: false
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Collect verified sports facts
@@ -24,7 +24,7 @@ jobs:
         run: |
           git config user.name "8et editorial"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pre-editorial.json
+          git add pre-editorial.json pre-events.json
           if ! git diff --cached --quiet; then
             git commit -m "Update verified PRE editorial facts"
             git pull --rebase

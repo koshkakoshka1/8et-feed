@@ -1,6 +1,6 @@
 import concurrent.futures as cf
 import datetime as dt
-import json, re, urllib.request, urllib.parse
+import json, re, urllib.request, urllib.parse, urllib.error
 from pathlib import Path
 
 UTC=dt.timezone.utc
@@ -46,20 +46,72 @@ def board(key,route):
     out={}
     # Short, nonoverlapping windows avoid scoreboard truncation.
     begin=(NOW-dt.timedelta(days=28)).date()
-    end=(NOW+dt.timedelta(days=8)).date()
+    end=(NOW+dt.timedelta(days=14)).date()
     while begin<=end:
         last=min(begin+dt.timedelta(days=6),end)
-        url=BASE+route+'/scoreboard?'+urllib.parse.urlencode({'dates':begin.strftime('%Y%m%d')+'-'+last.strftime('%Y%m%d'),'limit':500})
-        try:
-            for e in get(url).get('events',[]):
-                c=competition(e)
-                if c:out[c['id']]=c
-        except Exception as e:print('SOURCE_ERROR',key,begin,str(e))
+        date_range=begin.strftime('%Y%m%d')+'-'+last.strftime('%Y%m%d')
+        def read_window(dates):
+            for limit in (200,100,None):
+                params={'dates':dates}
+                if limit:params['limit']=limit
+                url=BASE+route+'/scoreboard?'+urllib.parse.urlencode(params)
+                try:
+                    payload=get(url)
+                    if not isinstance(payload.get('events'),list):
+                        raise ValueError('scoreboard missing events')
+                    for e in payload['events']:
+                        c=competition(e)
+                        if c:out[c['id']]=c
+                    if limit is not None and len(payload['events'])>=limit:
+                        return False
+                    return True
+                except urllib.error.HTTPError as ex:
+                    print('SOURCE_HTTP',key,dates,limit,ex.code,ex.read(160).decode(errors='replace').replace('\n',' '),flush=True)
+                    if ex.code not in (400,422):return False
+                except Exception as ex:
+                    print('SOURCE_ERROR',key,dates,str(ex)[:200],flush=True)
+                    return False
+            return False
+        if not read_window(date_range):
+            # A smaller single-day request is only a fallback for rejected ranges.
+            for offset in range((last-begin).days+1):
+                if not read_window((begin+dt.timedelta(days=offset)).strftime('%Y%m%d')):
+                    break
         begin=last+dt.timedelta(days=1)
     print('SOURCE',key,'events',len(out),'finished',sum(final(c) for c in out.values()),flush=True)
     return key,out
 with cf.ThreadPoolExecutor(max_workers=6) as pool:
     boards=dict(pool.map(lambda kv:board(*kv),LEAGUES.items()))
+
+# Discover additional fixtures from the same verified scoreboards.
+# Preserve original URL and Russian labels for known events.
+LABELS={'nhl':'НХЛ','rpl':'РПЛ','ucl':'Лига чемпионов','uel':'Лига Европы','epl':'АПЛ','laliga':'Ла Лига','seriea':'Серия А','nba':'НБА'}
+team_names={}
+for path,e in list(events.items()):
+    m=re.fullmatch(r'/matches/([a-z0-9-]+)/([0-9]+)',path)
+    if not m or m[1] not in boards:continue
+    c=boards[m[1]].get(m[2]);names=e.get('match','').split(' — ')
+    if not c or len(names)!=2:continue
+    if abs((date(e['when'])-c['when']).total_seconds())>900:continue
+    for side,name in zip(('home','away'),names):
+        ident=teamid(c[side])
+        if ident:team_names[(m[1],ident)]=name
+def name_for(key,x):
+    t=x.get('team') or {}
+    return team_names.get((key,teamid(x))) or t.get('displayName') or t.get('name') or ''
+added=0
+for key,rows in boards.items():
+    for i,c in rows.items():
+        if not re.fullmatch(r'[0-9]+',i):continue
+        if c['state'].get('state')!='pre' or c['state'].get('completed') or not NOW<c['when']<=NOW+dt.timedelta(days=14):continue
+        if re.search(r'cancel|postpon|suspend|tbd',str(c['state'].get('name','')),re.I):continue
+        path='/matches/'+key+'/'+i
+        if path in events:continue
+        home,away=name_for(key,c['home']),name_for(key,c['away'])
+        if not home or not away or not teamid(c['home']) or not teamid(c['away']):continue
+        events[path]={'path':path,'key':key,'league':LABELS[key],'match':home+' — '+away,'when':c['when'].isoformat().replace('+00:00','Z'),'source':'ESPN'}
+        added+=1
+print('CALENDAR_EXPANSION',json.dumps({'added':added,'total':len(events),'future':sum(date(e['when'])>NOW for e in events.values())}),flush=True)
 def form(rows,id,cut):
     out=[]
     for c in rows.values():
@@ -132,3 +184,7 @@ if not articles:
     raise RuntimeError('No verified editorial data; refusing to overwrite archive')
 out={'version':1,'updatedAt':NOW.isoformat(),'articles':articles}
 old_path.write_text(json.dumps(out,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+# Save the expanded public calendar without deleting previously published URLs.
+calendar={'version':1,'updatedAt':NOW.isoformat(),'events':list(events.values())}
+Path('pre-events.json').write_text(json.dumps(calendar,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+
