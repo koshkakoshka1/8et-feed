@@ -12,7 +12,7 @@ def get(url):
     req=urllib.request.Request(url,headers={'Accept':'application/json','User-Agent':'8ET editorial data collector'})
     with urllib.request.urlopen(req,timeout=15) as r: return json.load(r)
 BASE='https://site.api.espn.com/apis/site/v2/sports/'
-LEAGUES={'nhl':'hockey/nhl','rpl':'soccer/rus.1','ucl':'soccer/uefa.champions','uel':'soccer/uefa.europa','epl':'soccer/eng.1','laliga':'soccer/esp.1','seriea':'soccer/ita.1','nba':'basketball/nba'}
+LEAGUES={'nhl':'hockey/nhl','rpl':'soccer/rus.1','ucl':'soccer/uefa.champions','uel':'soccer/uefa.europa','epl':'soccer/eng.1','laliga':'soccer/esp.1','seriea':'soccer/ita.1','nba':'basketball/nba','bundesliga':'soccer/ger.1','ligue1':'soccer/fra.1','saudi':'soccer/ksa.1','mls':'soccer/usa.1'}
 old_path=Path('pre-editorial.json')
 old=json.loads(old_path.read_text(encoding='utf-8')) if old_path.exists() else {'articles':{}}
 articles=old.get('articles',{})
@@ -88,7 +88,7 @@ with cf.ThreadPoolExecutor(max_workers=6) as pool:
 
 # Discover additional fixtures from the same verified scoreboards.
 # Preserve original URL and Russian labels for known events.
-LABELS={'nhl':'НХЛ','rpl':'РПЛ','ucl':'Лига чемпионов','uel':'Лига Европы','epl':'АПЛ','laliga':'Ла Лига','seriea':'Серия А','nba':'НБА'}
+LABELS={'nhl':'НХЛ','rpl':'РПЛ','ucl':'Лига чемпионов','uel':'Лига Европы','epl':'АПЛ','laliga':'Ла Лига','seriea':'Серия А','nba':'НБА','bundesliga':'Бундеслига','ligue1':'Лига 1','saudi':'Саудовская Про-лига','mls':'МЛС'}
 team_names={}
 for path,e in list(events.items()):
     m=re.fullmatch(r'/matches/([a-z0-9-]+)/([0-9]+)',path)
@@ -101,7 +101,20 @@ for path,e in list(events.items()):
         if ident:team_names[(m[1],ident)]=name
 def name_for(key,x):
     t=x.get('team') or {}
-    return team_names.get((key,teamid(x))) or t.get('displayName') or t.get('name') or ''
+    aliases={
+        'Bayern Munich':'Бавария','Bayern München':'Бавария','Borussia Dortmund':'Боруссия Дортмунд',
+        'Bayer Leverkusen':'Байер','RB Leipzig':'РБ Лейпциг','Eintracht Frankfurt':'Айнтрахт Франкфурт',
+        'VfB Stuttgart':'Штутгарт','Hamburg SV':'Гамбург','Hamburger SV':'Гамбург',
+        'Paris Saint-Germain':'ПСЖ','Marseille':'Марсель','Olympique Marseille':'Марсель','Lyon':'Лион',
+        'AS Monaco':'Монако','Monaco':'Монако','Lille':'Лилль','Nice':'Ницца','Lens':'Ланс',
+        'Al Nassr':'Аль-Наср','Al Nassr FC':'Аль-Наср','Al Hilal':'Аль-Хиляль','Al Ahli':'Аль-Ахли',
+        'Al Ittihad':'Аль-Иттихад','Al Shabab':'Аль-Шабаб','Al Hazem':'Аль-Хазм','Al Qadsiah':'Аль-Кадисия',
+        'Inter Miami CF':'Интер Майами','Inter Miami':'Интер Майами','LA Galaxy':'Лос-Анджелес Гэлакси',
+        'Los Angeles FC':'Лос-Анджелес','LAFC':'Лос-Анджелес','New York City FC':'Нью-Йорк Сити',
+        'New York Red Bulls':'Нью-Йорк Ред Буллз','Seattle Sounders FC':'Сиэтл Саундерс',
+        'Atlanta United FC':'Атланта Юнайтед','Orlando City SC':'Орландо Сити'}
+    name=t.get('displayName') or t.get('name') or ''
+    return aliases.get(name) or team_names.get((key,teamid(x))) or name
 added=0
 for key,rows in boards.items():
     for i,c in rows.items():
