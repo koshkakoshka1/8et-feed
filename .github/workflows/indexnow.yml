@@ -1,0 +1,34 @@
+name: Индексация 8ET
+on:
+  schedule:
+    - cron: '53 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/indexnow.yml'
+      - 'indexnow-submit.py'
+permissions:
+  contents: write
+concurrency:
+  group: pre-archive
+  cancel-in-progress: false
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Проверка и отправка страниц
+        run: python -u indexnow-submit.py
+      - name: Сохранение журнала принятых адресов
+        run: |
+          if [ -f indexnow-state.json ]; then
+            git config user.name "8et indexnow"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add indexnow-state.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Обновить журнал IndexNow"
+              git pull --rebase
+              git push
+            fi
+          fi
