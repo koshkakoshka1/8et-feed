@@ -21,7 +21,18 @@ try:
     live=get('https://8et.ru/api/popular?view=archive-json').get('events',[])
 except Exception as e:
     print('LIVE_CALENDAR_ERROR',str(e)); live=[]
-events={e['path']:e for e in archive+live if isinstance(e,dict) and e.get('path') and date(e.get('when'))}
+def focus_club(key,name):
+    name=re.sub(r'[^a-zа-яё0-9]+',' ',str(name).casefold()).strip()
+    return bool(re.fullmatch(r'(?:inter miami(?: cf)?|интер майами(?: сф)?)',name)) if key=='mls' else bool(re.fullmatch(r'(?:al nassr(?: fc| riyadh)?|al nasr(?: fc| riyadh)?|аль наср(?: эр рияд)?|аль нассар)',name)) if key=='saudi' else True
+def focus_event(e):
+    key=e.get('key')
+    if key not in ('mls','saudi'):
+        m=re.match(r'/matches/(mls|saudi)/',str(e.get('path','')))
+        key=m[1] if m else key
+    # Исторические страницы не удаляем. Фильтруем только будущий календарь.
+    if key not in ('mls','saudi') or date(e['when'])<=NOW:return True
+    return any(focus_club(key,n) for n in re.split(r'\s+[—–-]\s+',str(e.get('match',''))))
+events={e['path']:e for e in archive+live if isinstance(e,dict) and e.get('path') and date(e.get('when')) and focus_event(e)}
 def competition(e):
     c=next(iter(e.get('competitions') or []),{})
     pp=c.get('competitors',[])
@@ -125,6 +136,7 @@ for key,rows in boards.items():
         if path in events:continue
         home,away=name_for(key,c['home']),name_for(key,c['away'])
         if not home or not away or not teamid(c['home']) or not teamid(c['away']):continue
+        if key in ('mls','saudi') and not any(focus_club(key,n) for n in (home,away)):continue
         events[path]={'path':path,'key':key,'league':LABELS[key],'match':home+' — '+away,'when':c['when'].isoformat().replace('+00:00','Z'),'source':'ESPN'}
         added+=1
 print('CALENDAR_EXPANSION',json.dumps({'added':added,'total':len(events),'future':sum(date(e['when'])>NOW for e in events.values())}),flush=True)
