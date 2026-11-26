@@ -1,0 +1,52 @@
+name: 8ET residential network diagnostics
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/reachability-residential.yml'
+permissions:
+  contents: read
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Compare public endpoints from Russian consumer networks
+        run: |
+          python -u - <<'PY'
+          import urllib.request, urllib.error, json, time, concurrent.futures
+          BASE='https://api.globalping.io/v1/measurements'
+          def request(url,payload=None):
+              req=urllib.request.Request(url,data=json.dumps(payload).encode() if payload else None,headers={'Accept':'application/json','Content-Type':'application/json','User-Agent':'8ET public network diagnostics'})
+              with urllib.request.urlopen(req,timeout=15) as r:
+                  return json.load(r)
+          def test(label,host,path,location,limit=8,method='GET'):
+              payload={'type':'http','target':host,'locations':[{'magic':location}],'limit':limit,'measurementOptions':{'protocol':'HTTPS','request':{'method':method,'path':path}}}
+              try:
+                  created=request(BASE,payload);mid=created['id']
+                  print('MEASUREMENT',label,mid,created.get('probesCount'),flush=True)
+                  for i in range(23):
+                      result=request(BASE+'/'+mid)
+                      if result.get('status')!='in-progress':break
+                      time.sleep(1)
+                  for row in result.get('results',[]):
+                      p=row.get('probe',{});r=row.get('result',{})
+                      report={k:r[k] for k in ('status','resolvedAddress','statusCode','timings','error') if k in r}
+                      report['rawOutput']=str(r.get('rawOutput',''))[:160] if r.get('status')!='finished' else ''
+                      print('NETWORK_RESULT',label,json.dumps({'city':p.get('city'),'network':p.get('network'),'asn':p.get('asn'),'tags':[t for t in p.get('tags',[]) if t in ('eyeball-network','datacenter-network')],'result':report},ensure_ascii=False),flush=True)
+                  return mid,created.get('probesCount',0)
+              except urllib.error.HTTPError as e:
+                  print('NETWORK_ERROR',label,e.code,e.read(450).decode(errors='replace'),flush=True)
+              except Exception as e:
+                  print('NETWORK_ERROR',label,str(e),flush=True)
+              return None,0
+          loc='Russia+eyeball-network'
+          mid,n=test('RU_HOME','8et.ru','/',loc,12)
+          if not mid:
+              mid,n=test('RU_ALL_HOME','8et.ru','/','Russia',8)
+          loc=mid or loc
+          targets=[('RU_ROBOTS','8et.ru','/robots.txt'),('RU_FEED','8et.ru','/api/site-feed'),('RU_PRE','8et.ru','/upcoming'),('RU_JS','8et.ru','/home-feed-20261126-home-recovery-r2.js'),('RU_ALIAS','8et.vercel.app','/'),('RU_WWW','www.8et.ru','/')]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              futures=[pool.submit(test,label,host,path,loc,max(n,1)) for label,host,path in targets]
+              for f in concurrent.futures.as_completed(futures):f.result()
+          PY
