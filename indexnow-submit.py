@@ -59,8 +59,12 @@ def main():
     urls = sitemap(BASE + '/sitemap.xml')
     if not urls: raise RuntimeError('Пустая карта сайта; отправка отменена')
     # Страницы без содержательной аналитики не отправляем массово.
-    candidates = {u: stamp for u, stamp in urls.items() if not urllib.parse.urlsplit(u).path.startswith('/matches/') or stamp}
-    changed = [u for u, stamp in sorted(candidates.items()) if u not in old or (stamp and old.get(u) != stamp)]
+    def hub(u):
+        return bool(re.fullmatch(r'/matches/[a-z0-9-]+/calendar', urllib.parse.urlsplit(u).path))
+    priority = [BASE+p for p in ('/matches/khl/calendar','/sport/hockey','/sport/football','/matches/rpl/calendar','/matches/nhl/calendar','/matches/epl/calendar','/matches/ucl/calendar','/','/articles','/upcoming')]
+    rank = {u:i for i,u in enumerate(priority)}
+    candidates = {u: stamp for u, stamp in urls.items() if hub(u) or not urllib.parse.urlsplit(u).path.startswith('/matches/') or stamp}
+    changed = sorted((u for u, stamp in candidates.items() if u not in old or (stamp and old.get(u) != stamp)), key=lambda u:(rank.get(u, 100 if hub(u) else 200),u))
     print('Кандидатов:',len(candidates),'новых или изменённых:',len(changed))
     # Проверяем HTML и канонический адрес перед отправкой. Ограничение нагрузки на сайт.
     def check(u):
@@ -70,7 +74,9 @@ def main():
             match = re.search(r'<link\b[^>]*rel=["\']canonical["\'][^>]*href=["\']([^"\']+)["\']', h, re.I)
             if status != 200 or not match or match.group(1) != u: return None
             if re.search(r'<meta\b[^>]*name=["\']robots["\'][^>]*content=["\'][^"\']*noindex', h, re.I): return None
-            if '/matches/' in u and not re.search(r'data-et-(?:editorial|result)=',h):return None
+            if hub(u):
+                if not re.search(r'<a\b[^>]*class=["\']fixture["\']',h,re.I):return None
+            elif '/matches/' in u and not re.search(r'data-et-(?:editorial|result)=',h):return None
             return u
         except Exception as e:
             print('Проверка отложена:',u,str(e)[:120])
