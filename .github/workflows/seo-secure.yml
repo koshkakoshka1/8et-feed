@@ -1,0 +1,23 @@
+name: 8ET — protected Yandex recrawl
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * *'
+permissions: {}
+jobs:
+  dispatch:
+    if: github.repository == 'koshkakoshka1/8et-feed' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' && vars.SEO_SECURE_SCHEDULE == 'true'
+    permissions:
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Dispatch only the protected branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run seo-secure.yml --repo koshkakoshka1/8et-feed --ref seo-secure
+  manual-main:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Select seo-secure branch to run the protected job. No token is used here.'
