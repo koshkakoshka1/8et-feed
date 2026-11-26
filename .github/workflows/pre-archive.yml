@@ -1,0 +1,50 @@
+name: Preserve PRE archive
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/pre-archive.yml'
+permissions:
+  contents: write
+concurrency:
+  group: pre-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Merge public event metadata
+        run: |
+          python - <<'PY'
+          import json, re, urllib.request, datetime
+          from pathlib import Path
+          p = Path('pre-events.json')
+          old = json.loads(p.read_text()) if p.exists() else {'events': []}
+          with urllib.request.urlopen('https://8et.ru/api/popular?view=archive-json', timeout=45) as r:
+              new = json.load(r)
+          if not isinstance(new.get('events'), list) or not new['events']:
+              raise RuntimeError('Calendar unavailable; retain archive')
+          rows = {}
+          for e in old['events'] + new['events']:
+              if not re.fullmatch(r'/(?:matches/[a-z0-9-]+/[A-Za-z0-9_-]+|upcoming/[a-z0-9-]+/[0-9]+|articles/(?:khl-|rpl-)[A-Za-z0-9-]+(?:\.html)?)', e.get('path','')):
+                  continue
+              if not e.get('match') or not e.get('when'):
+                  continue
+              datetime.datetime.fromisoformat(e['when'].replace('Z','+00:00'))
+              rows[e['path']] = {k:e[k] for k in ('path','key','league','match','when','source','preview','card','legacy') if k in e}
+          p.write_text(json.dumps({'version':1,'updatedAt':new.get('updatedAt'),'events':list(rows.values())},ensure_ascii=False),encoding='utf-8')
+          PY
+      - name: Save archive
+        run: |
+          git config user.name "8et archive"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pre-events.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Preserve event URLs"
+            git pull --rebase
+            git push
+          fi
