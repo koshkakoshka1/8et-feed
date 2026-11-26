@@ -1,0 +1,54 @@
+name: 8ET — protected Yandex recrawl
+on:
+  workflow_dispatch:
+  push:
+    branches: [seo-secure]
+    paths:
+      - '.github/workflows/seo-secure.yml'
+      - 'seo-secure/recrawl.py'
+  schedule:
+    - cron: '17 5 * * *'
+permissions:
+  contents: read
+jobs:
+  offline-test:
+    if: github.repository == 'koshkakoshka1/8et-feed' && github.ref == 'refs/heads/seo-secure' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 seo-secure/recrawl.py --self-test
+  dispatch:
+    if: github.repository == 'koshkakoshka1/8et-feed' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' && vars.SEO_SECURE_SCHEDULE == 'true'
+    permissions:
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Dispatch only the protected branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run seo-secure.yml --repo koshkakoshka1/8et-feed --ref seo-secure
+  recrawl:
+    if: github.repository == 'koshkakoshka1/8et-feed' && github.ref == 'refs/heads/seo-secure' && github.ref_protected && github.event_name == 'workflow_dispatch'
+    environment: seo-secure
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: protected-yandex-recrawl
+      cancel-in-progress: false
+    steps:
+      - name: Verify enablement
+        env:
+          ENABLED: ${{ vars.YANDEX_SECURE_ENABLED }}
+        run: test "$ENABLED" = true
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 seo-secure/recrawl.py --self-test
+      - name: Submit only public canonical URLs
+        env:
+          YANDEX_SECURE_TOKEN: ${{ secrets.YANDEX_SECURE_TOKEN }}
+        run: python3 seo-secure/recrawl.py
