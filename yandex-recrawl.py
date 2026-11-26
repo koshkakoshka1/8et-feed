@@ -71,20 +71,35 @@ def main():
     rank={BASE+x:i for i,x in enumerate(priority)}
     queue=sorted(set(urls),key=lambda u:(rank.get(u,999),u))
     accepted=0
+    attempted=0
+    failures=0
     for url in queue:
-        if limit<=0 or url in state["accepted"]:continue
-        if not indexable(url):continue
-        status,_=api(prefix+"/recrawl/queue",token,{"url":url})
-        if status==202 or status==409:
+        if limit<=0 or attempted>=20:break
+        if url in state["accepted"]:continue
+        try:
+            if not indexable(url):continue
+        except (OSError,ValueError):
+            continue
+        attempted+=1
+        status,result=api(prefix+"/recrawl/queue",token,{"url":url})
+        if (status==202 and isinstance(result.get("task_id"),str) and result["task_id"]) or status==409:
             state["accepted"][url]={"status":"accepted" if status==202 else "already_queued","date":dt.datetime.now(dt.timezone.utc).isoformat()}
             STATE.write_text(json.dumps(state,ensure_ascii=False,sort_keys=True,indent=2)+"\n",encoding="utf-8")
-            if status==202:accepted+=1;limit-=1
+            if status==202:
+                accepted+=1
+                limit-=1
+                remainder=result.get("quota_remainder")
+                if isinstance(remainder,int) and remainder>=0:limit=min(limit,remainder)
             print("Переобход:",status,url,flush=True)
         elif status==429:break
-        else:print("Переобход отложен: HTTP",status,url,flush=True)
+        else:
+            failures+=1
+            print("Переобход отложен: HTTP",status,url,flush=True)
+            if status in (401,403,404,502):break
     # Даже при пустой квоте сохраняем подтверждение проверки связи, без метрик.
-    state["last_check"]={"at":dt.datetime.now(dt.timezone.utc).isoformat(),"auth":True,"query_endpoint_http":qs,"accepted_this_run":accepted}
+    state["last_check"]={"at":dt.datetime.now(dt.timezone.utc).isoformat(),"auth":True,"query_endpoint_http":qs,"accepted_this_run":accepted,"attempted":attempted,"failed":failures}
     STATE.write_text(json.dumps(state,ensure_ascii=False,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+    if failures:raise RuntimeError("Переобход: есть неподтверждённые заявки")
 if __name__=="__main__":
     try:main()
     except Exception as e:
