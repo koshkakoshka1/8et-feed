@@ -36,7 +36,10 @@ def score(x):
     if isinstance(v,dict):v=v.get('value',v.get('displayValue'))
     try:return int(v)
     except (TypeError,ValueError):return None
-def final(c):return c['state'].get('completed') is True and c['state'].get('state')=='post' and all(score(c[x]) is not None for x in ('home','away'))
+def final(c):
+    status=c['state']
+    if re.search(r'cancel|postpon|abandon|suspend|forfeit|tbd',str(status.get('name',''))+' '+str(status.get('description','')),re.I):return False
+    return status.get('completed') is True and status.get('state')=='post' and all(score(c[x]) is not None and score(c[x])>=0 for x in ('home','away'))
 def record(x):
     for r in x.get('records') or []:
         s=str(r.get('summary') or r.get('record') or '')
@@ -145,7 +148,7 @@ def build(path,e):
         result={'home':score(c['home']),'away':score(c['away']),'date':c['when'].isoformat(),'source':summary_url,'observedAt':NOW.isoformat()}
         if prior:
             if prior.get('result',{}).get('home')==result['home'] and prior.get('result',{}).get('away')==result['away']:return
-            articles[path]={**prior,'result':result}
+            articles[path]={**prior,'result':result,'updatedAt':NOW.isoformat()}
         else:
             articles[path]={'when':e['when'],'match':e['match'],'league':e['league'],'updatedAt':NOW.isoformat(),'sections':[],'sources':[{'name':'ESPN: данные встречи','url':summary_url}],'result':result}
         return
@@ -173,7 +176,10 @@ def build(path,e):
     else:conclusion='По среднему балансу результативности явного преимущества в доступной выборке нет.'
     conclusion+=' '+('В хоккее существенны составы звеньев, стартовые вратари и игра спецбригад.' if k=='nhl' else 'В баскетболе важны темп, ротация и доступность лидеров.' if k=='nba' else 'В футболе необходимо учитывать составы, домашнее поле и уровень соперников.')
     sections.append({'title':'Предварительная оценка','text':conclusion+' Это редакционный статистический разбор, а не опубликованный прогноз модели.'})
-    articles[path]={'match':e['match'],'league':e['league'],'when':e['when'],'updatedAt':NOW.isoformat(),'lead':f'{h} — {a}: сопоставляем недавние результаты команд перед встречей. В расчёт включены только завершённые матчи с подтверждённым счётом в доступной выборке турнира.','sections':sections,'sources':[{'name':'ESPN: календарь и результаты турнира','url':url},{'name':'ESPN: данные встречи','url':summary_url}]}
+    candidate={'match':e['match'],'league':e['league'],'when':e['when'],'updatedAt':NOW.isoformat(),'lead':f'{h} — {a}: сопоставляем недавние результаты команд перед встречей. В расчёт включены только завершённые матчи с подтверждённым счётом в доступной выборке турнира.','sections':sections,'sources':[{'name':'ESPN: календарь и результаты турнира','url':url},{'name':'ESPN: данные встречи','url':summary_url}]}
+    if prior.get('result'):return
+    if {k:v for k,v in prior.items() if k!='updatedAt'}=={k:v for k,v in candidate.items() if k!='updatedAt'}:return
+    articles[path]=candidate
 for path,e in events.items():
     try:build(path,e)
     except Exception as ex:print('EVENT_ERROR',path,str(ex))
