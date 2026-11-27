@@ -6,7 +6,7 @@ on:
 permissions: {}
 jobs:
   dispatch:
-    if: github.repository == 'koshkakoshka1/8et-feed' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' && vars.SEO_SECURE_SCHEDULE == 'true'
+    if: github.repository == 'koshkakoshka1/8et-feed' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' && vars.SEO_SECURE_SCHEDULE != 'false'
     permissions:
       actions: write
     runs-on: ubuntu-latest
