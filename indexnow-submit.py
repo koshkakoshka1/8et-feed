@@ -64,6 +64,8 @@ def main():
     priority = [BASE+p for p in ('/articles/olympic-qualification-la28','/articles/biathlon-race-formats','/articles/figure-skating-scoring','/articles/cs2-match-formats','/articles/dota2-tournament-formats','/articles/futsal-match-rules','/articles/khl-standings-points','/articles/nhl-standings-rw-row','/articles/hockey-special-teams','/articles/champions-league-format-2026-27','/articles/football-xg-explained','/articles/nba-pace-net-rating','/articles/basketball-four-factors','/articles/tennis-scoring-tiebreak','/articles/futsal-champions-league-2026-27','/sport/olympics','/sport/biathlon','/sport/figure-skating','/sport/esports','/sport/futsal','/matches/khl/calendar','/sport/hockey','/sport/football','/matches/rpl/calendar','/matches/nhl/calendar','/matches/epl/calendar','/matches/ucl/calendar','/','/articles','/upcoming')]
     # New editorial archives and club profiles before the bulk match queue.
     priority = [BASE + '/teams', BASE + '/articles/daily'] + sorted(u for u in urls if urllib.parse.urlsplit(u).path.startswith(('/teams/', '/articles/daily/'))) + priority
+    # Prioritize sport directories and new editorial hubs ahead of bulk events.
+    priority = list(dict.fromkeys([BASE + '/sports'] + sorted(u for u in urls if urllib.parse.urlsplit(u).path.startswith('/sport/')) + priority))
     rank = {u:i for i,u in enumerate(priority)}
     candidates = {u: stamp for u, stamp in urls.items() if hub(u) or not urllib.parse.urlsplit(u).path.startswith('/matches/') or stamp}
     changed = sorted((u for u, stamp in candidates.items() if u not in old or (stamp and old.get(u) != stamp)), key=lambda u:(rank.get(u, 100 if hub(u) else 200),u))
